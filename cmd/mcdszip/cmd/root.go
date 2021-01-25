@@ -15,15 +15,29 @@
 package cmd
 
 import (
+	"archive/zip"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/materials-commons/gomcdb/mcmodel"
+
+	"github.com/apex/log"
+	mcdb "github.com/materials-commons/gomcdb"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
-var cfgFile string
+var (
+	cfgFile   string
+	datasetID int
+	dsn       string
+)
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -37,7 +51,48 @@ This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
-	//	Run: func(cmd *cobra.Command, args []string) { },
+	Run: func(cmd *cobra.Command, args []string) {
+		db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+		if err != nil {
+			log.Fatalf("Unable to open database: %s", err)
+		}
+
+		var ds mcmodel.Dataset
+		if err := db.Find(&ds, datasetID).Error; err != nil {
+			log.Fatalf("Unable to find dataset %d: %s", datasetID, err)
+		}
+
+		createDatasetZipfile(db, &ds)
+	},
+}
+
+func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
+	mcfsDir := viper.GetString("MCFS_DIR")
+	_ = mcfsDir
+	var files []mcmodel.File
+	archive := zip.NewWriter(nil)
+	defer archive.Close()
+	db.Preload("Directory").Where("project_id = ?", ds.ProjectID).FindInBatches(&files, 1000,
+		func(tx *gorm.DB, batch int) error {
+			for _, file := range files {
+				if file.IsFile() {
+					zipPath := strings.TrimPrefix(filepath.Join(file.Directory.Path, file.Name), "/")
+					f, err := os.Open(file.ToPath(mcfsDir))
+					if err != nil {
+						continue
+					}
+					zipWriter, err := archive.Create(zipPath)
+					if err != nil {
+						continue
+					}
+					if _, err := io.Copy(zipWriter, f); err != nil {
+						continue
+					}
+				}
+			}
+
+			return nil
+		})
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -52,14 +107,14 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mcdszip.yaml)")
+	rootCmd.PersistentFlags().IntVarP(&datasetID, "dataset-id", "d", -1, "Dataset ID to build zipfile for")
+	//dsn := "mc:mcpw@tcp(127.0.0.1:3306)/mc?charset=utf8mb4&parseTime=True&loc=Local"
+	dsn = mcdb.MakeDSNFromViper()
 
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	if mcfsDir := viper.Get("MCFS_DIR"); mcfsDir == "" {
+		log.Fatalf("MCFS_DIR not set")
+	}
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -77,7 +132,7 @@ func initConfig() {
 
 		// Search config in home directory with name ".mcdszip" (without extension).
 		viper.AddConfigPath(home)
-		viper.SetConfigName(".mcdszip")
+		viper.SetConfigName(".env")
 	}
 
 	viper.AutomaticEnv() // read in environment variables that match
