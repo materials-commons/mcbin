@@ -87,6 +87,7 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 				zipPath := strings.TrimPrefix(filepath.Join(file.Directory.Path, file.Name), "/")
 				f, err := os.Open(file.ToPath(mcfsDir))
 				if err != nil {
+					log.Errorf("Unable to add file to archive")
 					continue
 				}
 				zipWriter, err := archive.Create(zipPath)
