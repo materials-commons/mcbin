@@ -37,6 +37,7 @@ var (
 	cfgFile   string
 	datasetID int
 	dsn       string
+	zipfile   string
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -68,17 +69,25 @@ to quickly create a Cobra application.`,
 
 func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 	mcfsDir := viper.GetString("MCFS_DIR")
-	_ = mcfsDir
-	var files []mcmodel.File
-	archive := zip.NewWriter(nil)
+
+	zipfileFd, err := createZipfile()
+	if err == nil {
+		log.Fatalf("Unable to create zipfile: %s", err)
+	}
+	defer zipfileFd.Close()
+
+	archive := zip.NewWriter(zipfileFd)
 	defer archive.Close()
+
 	dsFileSelector := mcdb.NewDatasetFileSelector(*ds)
 	if err := dsFileSelector.LoadEntityFiles(db); err != nil {
 		log.Errorf("Unable to load entity files for dataset %d: %s", ds.ID, err)
 	}
 
-	db.Preload("Directory").Where("project_id = ?", ds.ProjectID).FindInBatches(&files, 1000,
-		func(tx *gorm.DB, batch int) error {
+	var files []mcmodel.File
+	db.Preload("Files.Directory").
+		Where("project_id = ?", ds.ProjectID).
+		FindInBatches(&files, 1000, func(tx *gorm.DB, batch int) error {
 			for _, file := range files {
 				if !includeFileInArchive(file, dsFileSelector) {
 					continue
@@ -87,20 +96,32 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 				zipPath := strings.TrimPrefix(filepath.Join(file.Directory.Path, file.Name), "/")
 				f, err := os.Open(file.ToPath(mcfsDir))
 				if err != nil {
-					log.Errorf("Unable to add file to archive")
+					log.Errorf("Unable to open file '%s' for achive: %s", file.ToPath(mcfsDir), err)
 					continue
 				}
+
 				zipWriter, err := archive.Create(zipPath)
 				if err != nil {
+					log.Errorf("Unable to add file '%s' to zipfile: %s", zipPath, err)
 					continue
 				}
+
 				if _, err := io.Copy(zipWriter, f); err != nil {
+					log.Errorf("Unable to write file '%d' to zipfile: %s", file.ID, err)
 					continue
 				}
 			}
 
 			return nil
 		})
+}
+
+func createZipfile() (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(zipfile), 0777); err != nil {
+		return nil, err
+	}
+
+	return os.Create(zipfile)
 }
 
 func includeFileInArchive(file mcmodel.File, dsFileSelector *mcdb.DatasetFileSelector) bool {
@@ -125,6 +146,8 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mcdszip.yaml)")
 	rootCmd.PersistentFlags().IntVarP(&datasetID, "dataset-id", "d", -1, "Dataset ID to build zipfile for")
+	rootCmd.PersistentFlags().StringVarP(&zipfile, "zipfile", "z", "", "Path to write zipfile to")
+
 	dsn = mcdb.MakeDSNFromViper()
 
 	if mcfsDir := viper.Get("MCFS_DIR"); mcfsDir == "" {
