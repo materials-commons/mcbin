@@ -72,27 +72,42 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 	var files []mcmodel.File
 	archive := zip.NewWriter(nil)
 	defer archive.Close()
+	dsFileSelector := mcdb.NewDatasetFileSelector(*ds)
+	if err := dsFileSelector.LoadEntityFiles(db); err != nil {
+		log.Errorf("Unable to load entity files for dataset %d: %s", ds.ID, err)
+	}
+
 	db.Preload("Directory").Where("project_id = ?", ds.ProjectID).FindInBatches(&files, 1000,
 		func(tx *gorm.DB, batch int) error {
 			for _, file := range files {
-				if file.IsFile() {
-					zipPath := strings.TrimPrefix(filepath.Join(file.Directory.Path, file.Name), "/")
-					f, err := os.Open(file.ToPath(mcfsDir))
-					if err != nil {
-						continue
-					}
-					zipWriter, err := archive.Create(zipPath)
-					if err != nil {
-						continue
-					}
-					if _, err := io.Copy(zipWriter, f); err != nil {
-						continue
-					}
+				if !includeFileInArchive(file, dsFileSelector) {
+					continue
+				}
+
+				zipPath := strings.TrimPrefix(filepath.Join(file.Directory.Path, file.Name), "/")
+				f, err := os.Open(file.ToPath(mcfsDir))
+				if err != nil {
+					continue
+				}
+				zipWriter, err := archive.Create(zipPath)
+				if err != nil {
+					continue
+				}
+				if _, err := io.Copy(zipWriter, f); err != nil {
+					continue
 				}
 			}
 
 			return nil
 		})
+}
+
+func includeFileInArchive(file mcmodel.File, dsFileSelector *mcdb.DatasetFileSelector) bool {
+	if !file.IsFile() {
+		return false
+	}
+
+	return dsFileSelector.IsIncludedFile(filepath.Join(file.Directory.Path, file.Name))
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -109,7 +124,6 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mcdszip.yaml)")
 	rootCmd.PersistentFlags().IntVarP(&datasetID, "dataset-id", "d", -1, "Dataset ID to build zipfile for")
-	//dsn := "mc:mcpw@tcp(127.0.0.1:3306)/mc?charset=utf8mb4&parseTime=True&loc=Local"
 	dsn = mcdb.MakeDSNFromViper()
 
 	if mcfsDir := viper.Get("MCFS_DIR"); mcfsDir == "" {
