@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/materials-commons/gomcdb/mcmodel"
 
@@ -34,9 +35,9 @@ import (
 )
 
 var (
-	cfgFile   string
-	datasetID int
-	zipfile   string
+	cfgFile     string
+	datasetID   int
+	zipfilePath string
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -85,34 +86,39 @@ func createDatasetZipfile(db *gorm.DB, ds mcmodel.Dataset) {
 		log.Errorf("Unable to load entity files for dataset %d: %s", ds.ID, err)
 	}
 
-	fmt.Printf("About to do FindInBatches\n")
+	log.Infof("Starting Zipfile build at %s\n", time.Now().Format(time.Kitchen))
 	var files []mcmodel.File
+	fileCount := 0
 	result := getQuery(db, ds).FindInBatches(&files, 1000, func(tx *gorm.DB, batch int) error {
-		log.Infof("Processing batch %d", batch)
-		fmt.Printf("Processing batch %d\n", batch)
 		for _, file := range files {
 			if !includeFileInArchive(file, dsFileSelector) {
 				continue
 			}
 
+			fileCount++
+
+			if fileCount%1000 == 0 {
+				log.Infof("Added %d files...", fileCount)
+			}
+
 			zipPath := strings.TrimPrefix(filepath.Join(file.Directory.Path, file.Name), "/")
 			f, err := os.Open(file.ToPath(mcfsDir))
 			if err != nil {
+				fileCount--
 				log.Errorf("Unable to open file '%s' for achive: %s", file.ToPath(mcfsDir), err)
-				fmt.Printf("Unable to open file '%s' for achive: %s\n", file.ToPath(mcfsDir), err)
 				continue
 			}
 
 			zipWriter, err := archive.Create(zipPath)
 			if err != nil {
+				fileCount--
 				log.Errorf("Unable to add file '%s' to zipfile: %s", zipPath, err)
-				fmt.Printf("Unable to add file '%s' to zipfile: %s\n", zipPath, err)
 				continue
 			}
 
 			if _, err := io.Copy(zipWriter, f); err != nil {
+				fileCount--
 				log.Errorf("Unable to write file '%d' to zipfile: %s", file.ID, err)
-				fmt.Printf("Unable to write file '%d' to zipfile: %s\n", file.ID, err)
 				continue
 			}
 		}
@@ -122,8 +128,9 @@ func createDatasetZipfile(db *gorm.DB, ds mcmodel.Dataset) {
 
 	if result.Error != nil {
 		log.Errorf("Getting batch of files returned error: %s", result.Error)
-		fmt.Printf("Getting batch of files returned error: %s\n", result.Error)
 	}
+
+	log.Infof("Finished building containing %d files at %s", fileCount, time.Now().Format(time.Kitchen))
 }
 
 func getQuery(db *gorm.DB, ds mcmodel.Dataset) *gorm.DB {
@@ -135,11 +142,11 @@ func getQuery(db *gorm.DB, ds mcmodel.Dataset) *gorm.DB {
 }
 
 func createZipfile() (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(zipfile), 0777); err != nil {
+	if err := os.MkdirAll(filepath.Dir(zipfilePath), 0777); err != nil {
 		return nil, err
 	}
 
-	return os.Create(zipfile)
+	return os.Create(zipfilePath)
 }
 
 func getProjectFiles(db *gorm.DB, projectID int) *gorm.DB {
@@ -171,7 +178,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mcdszip.yaml)")
 	rootCmd.PersistentFlags().IntVarP(&datasetID, "dataset-id", "d", -1, "Dataset ID to build zipfile for")
-	rootCmd.PersistentFlags().StringVarP(&zipfile, "zipfile", "z", "", "Path to write zipfile to")
+	rootCmd.PersistentFlags().StringVarP(&zipfilePath, "zipfile-path", "z", "", "Path to write zipfile to")
 
 	if mcfsDir := os.Getenv("MCFS_DIR"); mcfsDir == "" {
 		log.Fatalf("MCFS_DIR not set")
