@@ -64,12 +64,12 @@ to quickly create a Cobra application.`,
 			log.Fatalf("Unable to find dataset %d: %s", datasetID, err)
 		}
 
-		createDatasetZipfile(db, &ds)
+		createDatasetZipfile(db, ds)
 	},
 }
 
-func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
-	mcfsDir := viper.GetString("MCFS_DIR")
+func createDatasetZipfile(db *gorm.DB, ds mcmodel.Dataset) {
+	mcfsDir := os.Getenv("MCFS_DIR")
 
 	zipfileFd, err := createZipfile()
 	if err != nil {
@@ -80,14 +80,14 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 	archive := zip.NewWriter(zipfileFd)
 	defer archive.Close()
 
-	dsFileSelector := mcdb.NewDatasetFileSelector(*ds)
+	dsFileSelector := mcdb.NewDatasetFileSelector(ds)
 	if err := dsFileSelector.LoadEntityFiles(db); err != nil {
 		log.Errorf("Unable to load entity files for dataset %d: %s", ds.ID, err)
 	}
 
 	fmt.Printf("About to do FindInBatches\n")
 	var files []mcmodel.File
-	result := ds.GetFiles(db).FindInBatches(&files, 1000, func(tx *gorm.DB, batch int) error {
+	result := getQuery(db, ds).FindInBatches(&files, 1000, func(tx *gorm.DB, batch int) error {
 		log.Infof("Processing batch %d", batch)
 		fmt.Printf("Processing batch %d\n", batch)
 		for _, file := range files {
@@ -126,12 +126,27 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 	}
 }
 
+func getQuery(db *gorm.DB, ds mcmodel.Dataset) *gorm.DB {
+	if ds.PublishedAt.IsZero() {
+		return getProjectFiles(db, ds.ProjectID)
+	}
+
+	return ds.GetFiles(db)
+}
+
 func createZipfile() (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(zipfile), 0777); err != nil {
 		return nil, err
 	}
 
 	return os.Create(zipfile)
+}
+
+func getProjectFiles(db *gorm.DB, projectID int) *gorm.DB {
+	return db.Preload("Directory").
+		Where("project_id = ?", projectID).
+		Where("current = ?", true).
+		Where("mime_type <> ?", "directory")
 }
 
 func includeFileInArchive(file mcmodel.File, dsFileSelector *mcdb.DatasetFileSelector) bool {

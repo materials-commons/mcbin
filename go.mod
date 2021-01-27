@@ -6,7 +6,7 @@ require (
 	github.com/apex/log v1.9.0
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/magiconair/properties v1.8.4 // indirect
-	github.com/materials-commons/gomcdb v0.0.0-20210127161733-d854e13bbb71
+	github.com/materials-commons/gomcdb v0.0.0-20210127195242-7220f066e135
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/pelletier/go-toml v1.8.1 // indirect
