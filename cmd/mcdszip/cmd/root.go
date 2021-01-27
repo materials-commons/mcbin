@@ -23,13 +23,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mitchellh/go-homedir"
+	"github.com/spf13/viper"
+
 	"github.com/materials-commons/gomcdb/mcmodel"
 
 	"github.com/apex/log"
 	mcdb "github.com/materials-commons/gomcdb"
-	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -39,6 +40,44 @@ var (
 	datasetID   int
 	zipfilePath string
 )
+
+func init() {
+	cobra.OnInitialize(initConfig)
+
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mcdszip.yaml)")
+	rootCmd.PersistentFlags().IntVarP(&datasetID, "dataset-id", "d", -1, "Dataset ID to build zipfile for")
+	rootCmd.PersistentFlags().StringVarP(&zipfilePath, "zipfile-path", "z", "", "Path to write zipfile to")
+
+	if mcfsDir := os.Getenv("MCFS_DIR"); mcfsDir == "" {
+		log.Fatalf("MCFS_DIR not set")
+	}
+}
+
+// initConfig reads in config file and ENV variables if set.
+func initConfig() {
+	if cfgFile != "" {
+		// Use config file from the flag.
+		viper.SetConfigFile(cfgFile)
+	} else {
+		// Find home directory.
+		home, err := homedir.Dir()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		// Search config in home directory with name ".mcdszip" (without extension).
+		viper.AddConfigPath(home)
+		viper.SetConfigName(".env")
+	}
+
+	viper.AutomaticEnv() // read in environment variables that match
+
+	// If a config file is found, read it in.
+	if err := viper.ReadInConfig(); err == nil {
+		fmt.Println("Using config file:", viper.ConfigFileUsed())
+	}
+}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -141,19 +180,19 @@ func getQuery(db *gorm.DB, ds mcmodel.Dataset) *gorm.DB {
 	return ds.GetFiles(db)
 }
 
+func getProjectFiles(db *gorm.DB, projectID int) *gorm.DB {
+	return db.Preload("Directory").
+		Where("project_id = ?", projectID).
+		Where("current = ?", true).
+		Where("mime_type <> ?", "directory")
+}
+
 func createZipfile() (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(zipfilePath), 0777); err != nil {
 		return nil, err
 	}
 
 	return os.Create(zipfilePath)
-}
-
-func getProjectFiles(db *gorm.DB, projectID int) *gorm.DB {
-	return db.Preload("Directory").
-		Where("project_id = ?", projectID).
-		Where("current = ?", true).
-		Where("mime_type <> ?", "directory")
 }
 
 func includeFileInArchive(file mcmodel.File, dsFileSelector *mcdb.DatasetFileSelector) bool {
@@ -170,43 +209,5 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
-	}
-}
-
-func init() {
-	cobra.OnInitialize(initConfig)
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mcdszip.yaml)")
-	rootCmd.PersistentFlags().IntVarP(&datasetID, "dataset-id", "d", -1, "Dataset ID to build zipfile for")
-	rootCmd.PersistentFlags().StringVarP(&zipfilePath, "zipfile-path", "z", "", "Path to write zipfile to")
-
-	if mcfsDir := os.Getenv("MCFS_DIR"); mcfsDir == "" {
-		log.Fatalf("MCFS_DIR not set")
-	}
-}
-
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Find home directory.
-		home, err := homedir.Dir()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		// Search config in home directory with name ".mcdszip" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigName(".env")
-	}
-
-	viper.AutomaticEnv() // read in environment variables that match
-
-	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	}
 }
