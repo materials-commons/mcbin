@@ -85,9 +85,11 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 		log.Errorf("Unable to load entity files for dataset %d: %s", ds.ID, err)
 	}
 
+	fmt.Printf("About to do FindInBatches\n")
 	var files []mcmodel.File
 	result := ds.GetFiles(db).FindInBatches(&files, 1000, func(tx *gorm.DB, batch int) error {
 		log.Infof("Processing batch %d", batch)
+		fmt.Printf("Processing batch %d\n", batch)
 		for _, file := range files {
 			if !includeFileInArchive(file, dsFileSelector) {
 				continue
@@ -97,17 +99,20 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 			f, err := os.Open(file.ToPath(mcfsDir))
 			if err != nil {
 				log.Errorf("Unable to open file '%s' for achive: %s", file.ToPath(mcfsDir), err)
+				fmt.Printf("Unable to open file '%s' for achive: %s\n", file.ToPath(mcfsDir), err)
 				continue
 			}
 
 			zipWriter, err := archive.Create(zipPath)
 			if err != nil {
 				log.Errorf("Unable to add file '%s' to zipfile: %s", zipPath, err)
+				fmt.Printf("Unable to add file '%s' to zipfile: %s\n", zipPath, err)
 				continue
 			}
 
 			if _, err := io.Copy(zipWriter, f); err != nil {
 				log.Errorf("Unable to write file '%d' to zipfile: %s", file.ID, err)
+				fmt.Printf("Unable to write file '%d' to zipfile: %s\n", file.ID, err)
 				continue
 			}
 		}
@@ -117,6 +122,7 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 
 	if result.Error != nil {
 		log.Errorf("Getting batch of files returned error: %s", result.Error)
+		fmt.Printf("Getting batch of files returned error: %s\n", result.Error)
 	}
 }
 
