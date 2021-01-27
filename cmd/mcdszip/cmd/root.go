@@ -52,6 +52,7 @@ to quickly create a Cobra application.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
+		log.SetLevel(log.InfoLevel)
 		dsn := mcdb.MakeDSNFromEnv()
 		db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 		if err != nil {
@@ -85,7 +86,8 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 	}
 
 	var files []mcmodel.File
-	ds.GetFiles(db).FindInBatches(&files, 1000, func(tx *gorm.DB, batch int) error {
+	result := ds.GetFiles(db).FindInBatches(&files, 1000, func(tx *gorm.DB, batch int) error {
+		log.Infof("Processing batch %d", batch)
 		for _, file := range files {
 			if !includeFileInArchive(file, dsFileSelector) {
 				continue
@@ -112,6 +114,10 @@ func createDatasetZipfile(db *gorm.DB, ds *mcmodel.Dataset) {
 
 		return nil
 	})
+
+	if result.Error != nil {
+		log.Errorf("Getting batch of files returned error: %s", result.Error)
+	}
 }
 
 func createZipfile() (*os.File, error) {
