@@ -93,8 +93,8 @@ to quickly create a Cobra application.`,
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
 		log.SetLevel(log.InfoLevel)
-		dsn := mcdb.MakeDSNFromEnv()
-		db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+
+		db, err := gorm.Open(mysql.Open(mcdb.MakeDSNFromEnv()), &gorm.Config{})
 		if err != nil {
 			log.Fatalf("Unable to open database: %s", err)
 		}
