@@ -111,7 +111,7 @@ to quickly create a Cobra application.`,
 func createDatasetZipfile(db *gorm.DB, ds mcmodel.Dataset) {
 	mcfsDir := os.Getenv("MCFS_DIR")
 
-	zipfileFd, err := createZipfile()
+	zipfileFd, err := openFileToWriteZipTo()
 	if err != nil {
 		log.Fatalf("Unable to create zipfile: %s", err)
 	}
@@ -202,7 +202,7 @@ func getProjectFiles(db *gorm.DB, projectID int) *gorm.DB {
 		Where("mime_type <> ?", "directory")
 }
 
-func createZipfile() (*os.File, error) {
+func openFileToWriteZipTo() (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(zipfilePath), 0777); err != nil {
 		return nil, err
 	}
