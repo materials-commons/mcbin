@@ -167,9 +167,24 @@ func createDatasetZipfile(db *gorm.DB, ds mcmodel.Dataset) {
 
 	if result.Error != nil {
 		log.Errorf("Getting batch of files returned error: %s", result.Error)
+		return
 	}
 
-	log.Infof("Finished building containing %d files at %s", fileCount, time.Now().Format(time.Kitchen))
+	log.Infof("Finished building zipfile at %s", time.Now().Format(time.Kitchen))
+	log.Infof("  Zipfile contains %d files", fileCount)
+
+	size, err := getDatasetZipfileSize()
+	if err != nil {
+		log.Errorf("Unable to determine zipfile size for dataset %d: %s", ds.ID, err)
+		return
+	}
+
+	log.Infof("  Zipfile size: %d", size)
+
+	result = db.Model(&ds).Update("zipfile_size", size)
+	if result.Error != nil {
+		log.Errorf("Unable to set zipfile_size for dataset %d: %s", ds.ID, result.Error)
+	}
 }
 
 func getQuery(db *gorm.DB, ds mcmodel.Dataset) *gorm.DB {
@@ -201,6 +216,15 @@ func includeFileInArchive(file mcmodel.File, dsFileSelector *mcdb.DatasetFileSel
 	}
 
 	return dsFileSelector.IsIncludedFile(filepath.Join(file.Directory.Path, file.Name))
+}
+
+func getDatasetZipfileSize() (int64, error) {
+	finfo, err := os.Stat(zipfilePath)
+	if err != nil {
+		return 0, err
+	}
+
+	return finfo.Size(), nil
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
