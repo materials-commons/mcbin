@@ -141,10 +141,10 @@ func createDatasetZipfile(db *gorm.DB, ds mcmodel.Dataset) {
 			}
 
 			zipPath := strings.TrimPrefix(filepath.Join(file.Directory.Path, file.Name), "/")
-			f, err := os.Open(file.ToPath(mcfsDir))
+			f, err := os.Open(file.ToUnderlyingFilePath(mcfsDir))
 			if err != nil {
 				fileCount--
-				log.Errorf("Unable to open file '%s' for achive: %s", file.ToPath(mcfsDir), err)
+				log.Errorf("Unable to open file '%s' for achive: %s", file.ToUnderlyingFilePath(mcfsDir), err)
 				continue
 			}
 
